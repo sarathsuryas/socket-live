@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div>
+    <h3>Remote Stream</h3>
+    <video id="remoteVideo" autoplay></video>
+  </div>
+  <script>
+    const mediaSource = new MediaSource();
+    const remoteVideo = document.getElementById('remoteVideo');
+    remoteVideo.src = URL.createObjectURL(mediaSource);
+  
+    let sourceBuffer;
+    let queue = [];
+  
+    mediaSource.addEventListener('sourceopen', () => {
+      console.log('MediaSource opened');
+      const codec = 'video/webm; codecs="vp8, opus"'; // Match codec used in MediaRecorder
+  
+      if (MediaSource.isTypeSupported(codec)) {
+        sourceBuffer = mediaSource.addSourceBuffer(codec);
+        console.log('SourceBuffer created');
+      } else {
+        console.error('Unsupported codec:', codec);
+      }
+    });
+  
+    socket.on('chunks', async (chunk) => {
+      try {
+        const arrayBuffer = chunk instanceof ArrayBuffer ? chunk : await new Blob([chunk]).arrayBuffer();
+        if (sourceBuffer && !sourceBuffer.updating) {
+          sourceBuffer.appendBuffer(arrayBuffer);
+        } else {
+          queue.push(arrayBuffer);
+        }
+      } catch (error) {
+        console.error('Error handling video chunk:', error);
+      }
+    });
+  
+    if (sourceBuffer) {
+      sourceBuffer.addEventListener('updateend', () => {
+        if (queue.length > 0) {
+          sourceBuffer.appendBuffer(queue.shift());
+        }
+      });
+    }
+  
+    mediaSource.addEventListener('error', (e) => {
+      console.error('MediaSource error:', e);
+    });
+  </script>
+  
+</body>
+</html>

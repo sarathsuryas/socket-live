@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Streams</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .video-container {
+      display: flex;
+      gap: 20px;
+    }
+
+    video {
+      border: 2px solid #333;
+      border-radius: 8px;
+      width: 400px;
+      height: 300px;
+      object-fit: cover;
+    }
+
+    .title {
+      margin-bottom: 20px;
+      font-size: 1.5rem;
+    }
+  </style>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+
+<body>
+  <div class="title">Local and Remote Streams</div>
+  <div class="video-container">
+    <div>
+      <h3>Local Stream</h3>
+      <video id="localVideo" autoplay muted></video>
+    </div>
+    <div>
+      <h3>Remote Stream</h3>
+      <video id="remoteVideo" autoplay></video>
+    </div>
+  </div>
+
+  <script>
+    const socket = io('http://localhost:3000');
+  
+    // Initialize local video
+    const localVideo = document.getElementById('localVideo');
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        localVideo.srcObject = stream;
+  
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm; codecs="vp8, opus"' // Adjust as needed
+        });
+  
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            socket.emit('stream', event.data);
+          }
+        };
+  
+        mediaRecorder.start(300); // Emit chunks every 300ms
+      })
+      .catch((error) => {
+        console.error('Error accessing media devices:', error);
+      });
+  
+   // Initialize remote video
+    const mediaSource = new MediaSource();
+    const remoteVideo = document.getElementById('remoteVideo');
+    remoteVideo.src = URL.createObjectURL(mediaSource);
+  
+    let sourceBuffer;
+    let queue = [];
+  
+    mediaSource.addEventListener('sourceopen', () => {
+      console.log('MediaSource opened');
+      const codec = 'video/webm; codecs="vp8, opus"'; // Match codec used in MediaRecorder
+  
+      if (MediaSource.isTypeSupported(codec)) {
+        sourceBuffer = mediaSource.addSourceBuffer(codec);
+        console.log('SourceBuffer created');
+      } else {
+        console.error('Unsupported codec:', codec);
+      }
+    });
+  
+    socket.on('chunks', async (chunk) => {
+      try {
+        const arrayBuffer = chunk instanceof ArrayBuffer ? chunk : await new Blob([chunk]).arrayBuffer();
+        if (sourceBuffer && !sourceBuffer.updating) {
+          sourceBuffer.appendBuffer(arrayBuffer);
+        } else {
+          queue.push(arrayBuffer);
+        }
+      } catch (error) {
+        console.error('Error handling video chunk:', error);
+      }
+    });
+  
+    if (sourceBuffer) {
+      sourceBuffer.addEventListener('updateend', () => {
+        if (queue.length > 0) {
+          sourceBuffer.appendBuffer(queue.shift());
+        }
+      });
+    }
+  
+    mediaSource.addEventListener('error', (e) => {
+      console.error('MediaSource error:', e);
+    });
+  </script>
+</body>
+
+</html>
